@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Statistiques Magnus</title>
+</head>
+
+<body>
+    <h1>Cliquer sur bouton pour copier les données puis collez-les sur la 2ème ligne de la première feuille du classeur
+        Excel</h1>
+    <button onclick="navigator.clipboard.writeText(document.getElementById('data').value);"
+        style="background-color: green; color: white; font-weight: bold; height: 50px; width: 250px;">Copier les
+        données</button>
+    <br />
+    <textarea id="data" cols="150" rows="150" disabled>%DATA%</textarea>
+</body>
+
+</html>

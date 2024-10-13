@@ -1,0 +1,7 @@
+.direnv/
+venv/
+data/
+finished_games.json
+index.html
+shell.nix
+.envrc
