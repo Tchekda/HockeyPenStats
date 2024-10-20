@@ -3,20 +3,8 @@ import json
 import requests
 import os
 
-def get_all_games():
+def get_all_magnus_games():
     url = "https://liguemagnus.com/wp-admin/admin-ajax.php"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0",
-        "Accept": "*/*",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
-        "Pragma": "no-cache",
-        "Cache-Control": "no-cache"
-    }
     data = {
         "action": "get_rencontres",
         "page": "",
@@ -29,11 +17,28 @@ def get_all_games():
         "journee": "",
         "limite": 0
     }
-    response = requests.post(url, headers=headers, data=data)
+    response = requests.post(url, data=data)
     return response.json()
 
-def get_game_penalties(game_id: int) -> str:
-    url = f"https://liguemagnus.com/rencontre/{game_id}/"
+def get_all_d1_games():
+    url = "https://www.hockeyfrance.com/competitions/wp-admin/admin-ajax.php"
+    data= {
+        "action": "get_rencontres",
+        "page": "",
+        "equipe_id": "",
+        "competition_id": 158,
+        "phase_id": 436,
+        "date_min": "",
+        "date_max": "2025-02-22T00:00:00.000+01:00",
+        "par_page": 300,
+        "journee": "",
+        "limite": 0
+    }
+    response = requests.post(url, data=data)
+    return response.json()
+
+def get_game_penalties(base_url, game_id: int) -> str:
+    url = f"{base_url}/rencontre/{game_id}/"
     response = requests.get(url)
     """
     Extract attributes from the <live-rencontre-container> element
@@ -51,6 +56,9 @@ def get_game_penalties(game_id: int) -> str:
 
     formatted_penalties = []
     for penalty in game_penalties:
+        if penalty['sanction'] is None:
+            print("Penalty without sanction in game", url)
+            continue
         formatted_penalty = [
             "/".join(game_data['date_rencontre_non_formate'].split(' ')[0].replace('-', '/').split('/')[::-1]),
             game_data['receveur']['abreviation'],
@@ -71,31 +79,44 @@ def get_game_penalties(game_id: int) -> str:
     return formatted_dump
 
 def main():
-    games = get_all_games()
-    finished_games = [game for game in games['data']['data'] if game['etat'] == 'T']
-    print(len(finished_games), "out of", len(games['data']['data']), "games are finished")
+    magnus_games = get_all_magnus_games()
+    finished_magnus_games = [game for game in magnus_games['data']['data'] if game['etat'] == 'T']
+    print(len(finished_magnus_games), "out of", len(magnus_games['data']['data']), "Magnus games are finished")
     # Check if file exists
     if os.path.exists("data/finished_games.json"):
         with open("data/finished_games.json", 'r') as f:
             data = json.load(f)
     else:
         data = {}
-    for game in finished_games:
+    for game in finished_magnus_games:
         if str(game['id']) in data:
             continue
         try:
-            data[game['id']] = get_game_penalties(game['id'])
+            data[game['id']] = get_game_penalties("https://liguemagnus.com", game['id'])
+        except Exception as e:
+            print("Error processing game", game['id'], ":", e)
+
+    d1_games = get_all_d1_games()
+    finished_d1_games = [game for game in d1_games['data']['data'] if game['etat'] == 'T']
+    print(len(finished_d1_games), "out of", len(d1_games['data']['data']), "D1 games are finished")
+
+    for game in finished_d1_games:
+        if str(game['id']) in data:
+            continue
+        try:
+            data[game['id']] = get_game_penalties("https://www.hockeyfrance.com/competitions", game['id'])
         except Exception as e:
             print("Error processing game", game['id'], ":", e)
 
     with open("data/finished_games.json", 'w') as f:
         json.dump(data, f, indent=4)
 
-    lines = [penalties for penalties in data.values()]
+    magnus_lines = [data[str(game['id'])] for game in finished_magnus_games if str(game['id']) in data]
+    d1_lines = [data[str(game['id'])] for game in finished_d1_games if str(game['id']) in data]
     with open("template.html", 'r') as f:
         html_content = f.read()
     with open("data/index.html", 'w') as f:
-        f.write(html_content.replace("%DATA%", "\n".join(lines)))
+        f.write(html_content.replace("%MAGNUS_DATA%", "\n".join(magnus_lines)).replace("%D1_DATA%", "\n".join(d1_lines)))
 
 if __name__ == "__main__":
     main()
