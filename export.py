@@ -67,7 +67,7 @@ def get_game_penalties(base_url, game_id: int) -> str:
             penalty['equipe']['abreviation'],
             penalty['joueur']['nom_complet'] if penalty['joueur'] else "",
             penalty['substitution']['nom_complet'] if penalty['substitution'] else "",
-            f"{penalty['temps_penalite']}:00:00",
+            f"{penalty['temps_penalite'] if penalty['temps_penalite'] else 2}:00:00",
             penalty['sanction']['code'],
         ]
         formatted_penalties.append(formatted_penalty)
