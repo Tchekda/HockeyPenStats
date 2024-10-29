@@ -129,12 +129,20 @@ def main():
             penalty_data = penalty.split("\t")
             line = "".join([f"<td>{data}</td>" for data in penalty_data])
             d1_lines.append(f"<tr>{line}</tr>")
-    with open("template.html", 'r') as f:
+    with open("template_table.html", 'r') as f:
         html_content = f.read()
     with open("data/magnus.html", 'w') as f:
         f.write(html_content.replace("%DATA%", "\n".join(magnus_lines)))
     with open("data/d1.html", 'w') as f:
         f.write(html_content.replace("%DATA%", "\n".join(d1_lines)))
+
+    magnus_lines = [data[str(game['id'])] for game in finished_magnus_games if str(game['id']) in data]
+    d1_lines = [data[str(game['id'])] for game in finished_d1_games if str(game['id']) in data]
+    with open("template_index.html", 'r') as f:
+        html_content = f.read()
+    with open("data/index.html", 'w') as f:
+        f.write(html_content.replace("%MAGNUS_DATA%", "\n".join(magnus_lines)).replace("%D1_DATA%", "\n".join(d1_lines)))
+
 
 if __name__ == "__main__":
     main()
