@@ -63,7 +63,7 @@ def get_game_penalties(base_url, game_id: int) -> str:
             "/".join(game_data['date_rencontre_non_formate'].split(' ')[0].replace('-', '/').split('/')[::-1]),
             game_data['receveur']['abreviation'],
             game_data['visiteur']['abreviation'],
-            f"{int(penalty['temps']/60)}:{(penalty['temps']%60):02}:00",
+            f"{int(penalty['temps']/3600):02}:{(int(penalty['temps']/60)%60):02}:{(penalty['temps']%60):02}",
             penalty['equipe']['abreviation'],
             penalty['joueur']['nom_complet'] if penalty['joueur'] else "",
             penalty['substitution']['nom_complet'] if penalty['substitution'] else "",
