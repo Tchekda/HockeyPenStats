@@ -25,19 +25,19 @@ def main():
                 row['\ufeff"Compétition"'],
                 row['Phase'],
                 row['Date'],
-                months.get(row['Date'].split('/')[1], ''),
                 row['Heure'],
                 row['Lieu'],
-                row['Rencontre'].split(' / ')[0].split(' - ', 1)[1],
-                row['Rencontre'].split(' / ')[1].split(' - ', 1)[1],
             ]
-            refCols = ['Arbitre principal', 'Arbitre principal 2', 'Juge de ligne', 'Juge de ligne 2', 'Arbitre', 'Arbitre 2', 'Superviseur']
-            for col in refCols:
-                ref = row[col]
-                if ref:
-                    cp = game.copy()
-                    cp.extend([col.replace(" 2", ""), ref])
-                    lines.append(cp)
+            for teamId in [0, 1]:
+                teamCp = game.copy()
+                teamCp.extend(["Domicile" if teamId == 0 else "Visiteur", row['Rencontre'].split(' / ')[teamId].split(' - ', 1)[1]])
+                refCols = ['Arbitre principal', 'Arbitre principal 2', 'Juge de ligne', 'Juge de ligne 2', 'Arbitre', 'Arbitre 2', 'Superviseur']
+                for col in refCols:
+                    ref = row[col]
+                    if ref:
+                        refCp = teamCp.copy()
+                        refCp.extend([col.replace(" 2", ""), ref])
+                        lines.append(refCp)
     
     with open("template_design.html", 'r') as f:
         html_content = f.read()
