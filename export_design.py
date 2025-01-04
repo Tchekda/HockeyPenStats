@@ -28,7 +28,6 @@ def main():
     lines = []
     designations = get_design().splitlines()
     print("Fetched", len(designations) - 1, "designations")
-    print(designations)
     reader = csv.reader(designations, delimiter=';', quotechar='"')
     next(reader) # Skip header
     for row in reader:
