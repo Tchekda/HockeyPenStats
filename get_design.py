@@ -47,6 +47,11 @@ def getAllDesignations(s: requests.Session) -> str:
     
 
 def main() -> str:
+    logging.getLogger().addHandler(logging.StreamHandler())
+    logging.getLogger().setLevel(logging.DEBUG)
+    requests_log = logging.getLogger("requests.packages.urllib3")
+    requests_log.setLevel(logging.DEBUG)
+    requests_log.propagate = True
     if 'X-CSRF-TOKEN' in HTTP_HEADERS:
         del HTTP_HEADERS['X-CSRF-TOKEN']
     s = requests.Session()
