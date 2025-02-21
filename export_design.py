@@ -63,5 +63,11 @@ def main():
     with open("data/designations.html", 'w') as f:
         f.write(html_content.replace("%DATA%", "\n".join(["<tr>" + "".join([f"<td>{data}</td>" for data in line]) + "</tr>" for line in lines])))
 
+    with open("data/designations.csv", "w") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Compétition", "Phase", "Date", "Heure", "Lieu", "Type d'Équipe", "Équipe", "Rôle", "Nom", "Prénom"])
+        for line in lines:
+            writer.writerow(line)
+
 if __name__ == "__main__":
     main()
