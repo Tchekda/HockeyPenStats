@@ -1,4 +1,5 @@
 import csv
+import re
 from get_design import main as get_design
 
 months = {
@@ -48,8 +49,14 @@ def main():
                     refNames = ref.split(', ')
                     for refName in refNames:
                         refCp = teamCp.copy()
-                        refCp.extend([ref_roles.get(col, "Arbitre"), refName])
-                        lines.append(refCp)
+                        refMatch = re.match(r"M(?:me)? ([A-Z \-']+) ([A-Z][\w \-']+)", refName)
+                        if refMatch:
+                            lastName = refMatch.group(1)
+                            firstName = refMatch.group(2)
+                            refCp.extend([ref_roles.get(col, "Arbitre"), lastName, firstName])
+                            lines.append(refCp)
+                        else:
+                            print("Error: referee name does not match the expected format", ref)
     print("Processed", len(lines), "designations entries")
     with open("template_design.html", 'r') as f:
         html_content = f.read()
