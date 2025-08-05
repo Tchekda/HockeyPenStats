@@ -38,7 +38,7 @@ def getAllDesignations(s: requests.Session) -> str:
         "lieu_pratique": None,
         "horaire": None,
         "libelle": None,
-        "saison": 2025,
+        "saison": 2026,
         "discipline_code": "HG",
         "show_all": False
     }
