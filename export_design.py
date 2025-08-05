@@ -22,7 +22,7 @@ ref_roles = {
     6: 'Arbitre principal',
     7: 'Juge de ligne',
     8: 'Arbitre',
-    9: 'SuperViseur',
+    9: 'Superviseur',
 }
 
 def main():
@@ -42,7 +42,7 @@ def main():
         for teamId in [0, 1]:
             teamCp = game.copy()
             teamCp.extend(["Domicile" if teamId == 0 else "Visiteur", row[5].split(' / ')[teamId].split(' - ', 1)[1]])
-            refCols = [6, 7, 8, 9]
+            refCols = range(6, len(row))
             for col in refCols:
                 ref = row[col]
                 if ref:
