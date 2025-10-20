@@ -32,6 +32,9 @@ def main():
     reader = csv.reader(designations, delimiter=';', quotechar='"')
     next(reader) # Skip header
     for row in reader:
+        if len(row) < 7:
+            print("Skipping invalid row:", row)
+            continue
         game = [
             row[0],
             row[1],
@@ -41,7 +44,7 @@ def main():
         ]
         for teamId in [0, 1]:
             teamCp = game.copy()
-            teamCp.extend(["Domicile" if teamId == 0 else "Visiteur", row[5].split(' / ')[teamId].split(' - ', 1)[1]])
+            teamCp.extend(["Domicile" if teamId == 0 else "Visiteur", row[5].split(' / ', 1)[teamId].split(' - ', 1)[1]])
             refCols = range(6, len(row))
             for col in refCols:
                 ref = row[col]

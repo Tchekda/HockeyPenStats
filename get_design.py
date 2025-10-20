@@ -11,6 +11,8 @@ HTTP_HEADERS = {
     }
 CSRF_REFEX = r"name=\"csrf-token\" content=\"([^\"]+)\""
 
+LOCAL_FILE_PATH = "data/designations_export.csv"
+
 def extractToken(page: str) -> str:
     token = re.findall(CSRF_REFEX, page)
     if len(token) == 0:
@@ -47,6 +49,10 @@ def getAllDesignations(s: requests.Session) -> str:
     
 
 def main() -> str:
+    # if local file exists, use it
+    if os.path.exists(LOCAL_FILE_PATH):
+        with open(LOCAL_FILE_PATH, 'r') as f:
+            return f.read()
     logging.getLogger().addHandler(logging.StreamHandler())
     logging.getLogger().setLevel(logging.DEBUG)
     requests_log = logging.getLogger("requests.packages.urllib3")
@@ -66,9 +72,4 @@ def main() -> str:
     return getAllDesignations(s)
 
 if __name__ == "__main__":
-    logging.getLogger().addHandler(logging.StreamHandler())
-    logging.getLogger().setLevel(logging.DEBUG)
-    requests_log = logging.getLogger("requests.packages.urllib3")
-    requests_log.setLevel(logging.DEBUG)
-    requests_log.propagate = True
     main()
