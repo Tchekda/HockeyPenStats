@@ -84,9 +84,9 @@ def main():
     for game in games:
         games_by_date[game['date']].append(game)
     
-    # Analyze days with 3+ SLM games
+    # Analyze days with 5+ SLM games
     print("\n" + "="*80)
-    print("ANALYSIS OF DAYS WITH 3+ SLM GAMES")
+    print("ANALYSIS OF DAYS WITH 5+ SLM GAMES")
     print("="*80)
     
     # Sort dates properly
@@ -116,7 +116,7 @@ def main():
         date_games = games_by_date[date]
         slm_games = [g for g in date_games if g['competition'] == 'Synerglace Ligue Magnus']
         
-        if len(slm_games) >= 3:
+        if len(slm_games) >= 5:
             # Get all refs appointed on SLM games this day
             slm_refs_on_slm_games = set()
             non_slm_refs_on_slm_games = set()
@@ -202,7 +202,7 @@ def main():
             print(f"   Total SLM games: {len(slm_games)}")
             print(f"   SLM refs appointed to SLM games: {len(slm_refs_on_slm_games)}")
             print(f"   Non-SLM refs appointed to SLM games: {len(non_slm_refs_on_slm_games)}")
-            print(f"   Total SLM refs NOT on SLM games: {len(slm_refs_not_on_slm)} ({pct_not_on_slm:.1f}%)")
+            print(f"   Total SLM refs non désigné en SLM: {len(slm_refs_not_on_slm)} ({pct_not_on_slm:.1f}%)")
             print(f"      - Staying home (no assignment): {len(slm_refs_staying_home)} ({pct_staying_home:.1f}%)")
             print(f"      - Working other divisions: {len(slm_refs_on_other_games)}")
             
@@ -233,7 +233,7 @@ def main():
         total_slm_refs = len(slm_refs_qualified)
         
         print(f"\nAverage per day:")
-        print(f"  - SLM refs NOT on SLM games: {avg_not_on_slm:.1f} ({avg_not_on_slm/total_slm_refs*100:.1f}%)")
+        print(f"  - SLM refs non désigné en SLM: {avg_not_on_slm:.1f} ({avg_not_on_slm/total_slm_refs*100:.1f}%)")
         print(f"  - SLM refs staying home: {avg_staying_home:.1f} ({avg_staying_home/total_slm_refs*100:.1f}%)")
         print(f"  - SLM refs working other divisions: {avg_working_other:.1f}")
     
@@ -249,7 +249,7 @@ def main():
         if month in monthly_stats:
             stats = monthly_stats[month]
             print(f"\n{month}:")
-            print(f"  Days with 3+ SLM games: {stats['days_count']}")
+            print(f"  Days with 5+ SLM games: {stats['days_count']}")
             print(f"  Total SLM games: {stats['total_slm_games']}")
             if stats['days_count'] > 0:
                 avg_not_on_slm = stats['total_slm_refs_not_on_slm'] / stats['days_count']
@@ -258,7 +258,7 @@ def main():
                 total_slm_refs = len(slm_refs_qualified)
                 
                 print(f"  Average per day:")
-                print(f"    - SLM refs NOT on SLM games: {avg_not_on_slm:.1f} ({avg_not_on_slm/total_slm_refs*100:.1f}%)")
+                print(f"    - SLM refs non désigné en SLM: {avg_not_on_slm:.1f} ({avg_not_on_slm/total_slm_refs*100:.1f}%)")
                 print(f"    - SLM refs staying home: {avg_staying_home:.1f} ({avg_staying_home/total_slm_refs*100:.1f}%)")
                 print(f"    - SLM refs working other divisions: {avg_working_other:.1f}")
     
@@ -270,50 +270,46 @@ def generate_html_report(daily_stats, global_stats, monthly_stats, slm_refs_qual
     """Generate HTML report with statistics"""
     total_slm_refs = len(slm_refs_qualified)
     
-    html = """<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Statistiques Arbitres SLM - Absences</title>
-</head>
-<body>
-    <h1>Statistiques Arbitres SLM - Absences sur Journées à 3+ Matchs</h1>
+    content = """<h1>Statistiques Arbitres SLM - Absences sur Journées à 5+ Matchs</h1>
     
     <h2>Statistiques Globales</h2>
-    <table border="1">
-        <tr>
-            <th>Métrique</th>
-            <th>Valeur</th>
-        </tr>
-        <tr>
-            <td>Total arbitres SLM qualifiés (3+ matchs)</td>
-            <td>%d</td>
-        </tr>
-        <tr>
-            <td>Journées analysées (3+ matchs SLM)</td>
-            <td>%d</td>
-        </tr>
-        <tr>
-            <td>Total matchs SLM</td>
-            <td>%d</td>
-        </tr>
-        <tr>
-            <td>Moyenne matchs SLM par journée</td>
-            <td>%.1f</td>
-        </tr>
-        <tr>
-            <td>Moyenne arbitres SLM Non désignés sur SLM par journée</td>
-            <td>%.1f (%.1f%%)</td>
-        </tr>
-        <tr>
-            <td>Moyenne arbitres SLM restant à domicile par journée</td>
-            <td>%.1f (%.1f%%)</td>
-        </tr>
-        <tr>
-            <td>Moyenne arbitres SLM travaillant autres divisions par journée</td>
-            <td>%.1f</td>
-        </tr>
+    <table>
+        <thead>
+            <tr>
+                <th>Métrique</th>
+                <th>Valeur</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Total arbitres SLM qualifiés (3+ matchs)</td>
+                <td><span class="stats-highlight">%d</span></td>
+            </tr>
+            <tr>
+                <td>Journées analysées (5+ matchs SLM)</td>
+                <td><span class="stats-highlight">%d</span></td>
+            </tr>
+            <tr>
+                <td>Total matchs SLM</td>
+                <td><span class="stats-highlight">%d</span></td>
+            </tr>
+            <tr>
+                <td>Moyenne matchs SLM par journée</td>
+                <td><span class="stats-highlight">%.1f</span></td>
+            </tr>
+            <tr>
+                <td>Moyenne arbitres SLM non désigné en SLM par journée</td>
+                <td><span class="stats-highlight">%.1f</span> <span class="percentage">(%.1f%%)</span></td>
+            </tr>
+            <tr>
+                <td>Moyenne arbitres SLM restant à domicile par journée</td>
+                <td><span class="stats-highlight">%.1f</span> <span class="percentage">(%.1f%%)</span></td>
+            </tr>
+            <tr>
+                <td>Moyenne arbitres SLM travaillant autres divisions par journée</td>
+                <td><span class="stats-highlight">%.1f</span></td>
+            </tr>
+        </tbody>
     </table>
 """ % (
         total_slm_refs,
@@ -328,15 +324,15 @@ def generate_html_report(daily_stats, global_stats, monthly_stats, slm_refs_qual
     )
     
     # Monthly statistics
-    html += "\n    <h2>Statistiques Mensuelles</h2>\n"
-    html += """    <table border="1">
+    content += "\n    <h2>Statistiques Mensuelles</h2>\n"
+    content += """    <table>
         <thead>
             <tr>
                 <th>Mois</th>
                 <th>Journées</th>
                 <th>Matchs SLM</th>
-                <th>Moy. Non désigné sur SLM</th>
-                <th>% Non désigné sur SLM</th>
+                <th>Moy. Non désigné en SLM</th>
+                <th>% Non désigné en SLM</th>
                 <th>Moy. Restant à domicile</th>
                 <th>% Restant à domicile</th>
                 <th>Moy. Autres divisions</th>
@@ -353,19 +349,19 @@ def generate_html_report(daily_stats, global_stats, monthly_stats, slm_refs_qual
                 avg_staying_home = stats['total_staying_home'] / stats['days_count']
                 avg_working_other = stats['total_working_other'] / stats['days_count']
                 
-                html += f"""            <tr>
-                <td>{month}</td>
+                content += f"""            <tr>
+                <td><strong>{month}</strong></td>
                 <td>{stats['days_count']}</td>
                 <td>{stats['total_slm_games']}</td>
                 <td>{avg_not_on_slm:.1f}</td>
-                <td>{avg_not_on_slm/total_slm_refs*100:.1f}%</td>
+                <td><span class="percentage">{avg_not_on_slm/total_slm_refs*100:.1f}%</span></td>
                 <td>{avg_staying_home:.1f}</td>
-                <td>{avg_staying_home/total_slm_refs*100:.1f}%</td>
+                <td><span class="percentage">{avg_staying_home/total_slm_refs*100:.1f}%</span></td>
                 <td>{avg_working_other:.1f}</td>
             </tr>
 """
     
-    html += """        </tbody>
+    content += """        </tbody>
     </table>
     
     <h2>Détails par Journée</h2>
@@ -373,56 +369,79 @@ def generate_html_report(daily_stats, global_stats, monthly_stats, slm_refs_qual
     
     # Daily details
     for day in daily_stats:
-        html += f"""
-    <h3>{day['date']}</h3>
-    <table border="1">
-        <tr>
-            <th>Métrique</th>
-            <th>Valeur</th>
-        </tr>
-        <tr>
-            <td>Matchs SLM</td>
-            <td>{day['total_slm_games']}</td>
-        </tr>
-        <tr>
-            <td>Arbitres SLM désignés sur SLM</td>
-            <td>{day['slm_refs_on_slm']}</td>
-        </tr>
-        <tr>
-            <td>Arbitres non-SLM désignés sur SLM</td>
-            <td>{day['non_slm_refs_on_slm']}</td>
-        </tr>
-        <tr>
-            <td>Arbitres SLM Non désigné sur SLM</td>
-            <td>{day['slm_refs_not_on_slm']} ({day['pct_not_on_slm']:.1f}%)</td>
-        </tr>
-        <tr>
-            <td>Restant à domicile</td>
-            <td>{day['staying_home']} ({day['pct_staying_home']:.1f}%)</td>
-        </tr>
-        <tr>
-            <td>Travaillant autres divisions</td>
-            <td>{day['working_other']}</td>
-        </tr>
-    </table>
+        content += f"""
+    <details class="day-section">
+        <summary style="cursor: pointer; font-size: 1.2em; font-weight: bold; padding: 10px; margin: -20px -20px 20px -20px; background-color: #3498db; color: white; border-radius: 5px 5px 0 0;">
+            📅 {day['date']} - {day['total_slm_games']} matchs SLM - {day['staying_home']} arbitres à domicile ({day['pct_staying_home']:.1f}%)
+        </summary>
+        <table>
+            <thead>
+                <tr>
+                    <th>Métrique</th>
+                    <th>Valeur</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Matchs SLM</td>
+                    <td><span class="stats-highlight">{day['total_slm_games']}</span></td>
+                </tr>
+                <tr>
+                    <td>Arbitres SLM désignés sur SLM</td>
+                    <td><span class="stats-highlight">{day['slm_refs_on_slm']}</span></td>
+                </tr>
+                <tr>
+                    <td>Arbitres non-SLM désignés sur SLM</td>
+                    <td><span class="stats-highlight">{day['non_slm_refs_on_slm']}</span></td>
+                </tr>
+                <tr>
+                    <td>Arbitres SLM non désigné en SLM</td>
+                    <td><span class="stats-highlight">{day['slm_refs_not_on_slm']}</span> <span class="percentage">({day['pct_not_on_slm']:.1f}%)</span></td>
+                </tr>
+                <tr>
+                    <td>Restant à domicile</td>
+                    <td><span class="stats-highlight">{day['staying_home']}</span> <span class="percentage">({day['pct_staying_home']:.1f}%)</span></td>
+                </tr>
+                <tr>
+                    <td>Travaillant autres divisions</td>
+                    <td><span class="stats-highlight">{day['working_other']}</span></td>
+                </tr>
+            </tbody>
+        </table>
 """
         
         if day['staying_home_list']:
-            html += "\n    <h4>Arbitres SLM restant à domicile</h4>\n    <ul>\n"
+            content += f"""
+        <details style="margin-top: 15px;">
+            <summary style="cursor: pointer; font-size: 1.05em; font-weight: 600; color: #2c3e50;">
+                🏠 Arbitres SLM restant à domicile ({len(day['staying_home_list'])})
+            </summary>
+            <ul>
+"""
             for ref in day['staying_home_list']:
-                html += f"        <li>{ref[0]} {ref[1]}</li>\n"
-            html += "    </ul>\n"
+                content += f"                <li>{ref[0]} {ref[1]}</li>\n"
+            content += "            </ul>\n        </details>\n"
         
         if day['working_other_list']:
-            html += "\n    <h4>Arbitres SLM travaillant autres divisions</h4>\n    <ul>\n"
+            content += f"""
+        <details style="margin-top: 15px;">
+            <summary style="cursor: pointer; font-size: 1.05em; font-weight: 600; color: #2c3e50;">
+                🔄 Arbitres SLM travaillant autres divisions ({len(day['working_other_list'])})
+            </summary>
+            <ul>
+"""
             for ref in day['working_other_list']:
                 competitions = ', '.join(day['working_other_details'][ref])
-                html += f"        <li>{ref[0]} {ref[1]}: {competitions}</li>\n"
-            html += "    </ul>\n"
+                content += f"                <li>{ref[0]} {ref[1]}: <em>{competitions}</em></li>\n"
+            content += "            </ul>\n        </details>\n"
+        
+        content += "    </details>\n"
     
-    html += """
-</body>
-</html>"""
+    # Load template and insert content
+    with open("template_staying_home.html", 'r') as f:
+        template = f.read()
+    
+    html = template.replace("%CONTENT%", content)
     
     with open("data/staying_home.html", "w") as f:
         f.write(html)
