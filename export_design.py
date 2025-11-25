@@ -36,13 +36,13 @@ def main():
             print("Skipping invalid row:", row)
             continue
         game = [
-            row[0],
-            row[1],
-            row[2],
-            row[3],
-            row[4],
+            row[0], # Compétition
+            row[1], # Phase
+            row[2], # Date
+            row[3], # Heure
+            row[4], # Lieu
         ]
-        for teamId in [0, 1]:
+        for teamId in [0, 1]: # Duplicate for home and away teams
             teamCp = game.copy()
             teamCp.extend(["Domicile" if teamId == 0 else "Visiteur", row[5].split(' / ', 1)[teamId].split(' - ', 1)[1]])
             refCols = range(6, len(row))
