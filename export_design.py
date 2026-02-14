@@ -17,20 +17,12 @@ months = {
     '12': 'Décembre',
 }
 
-
-ref_roles = {
-    6: 'Arbitre principal',
-    7: 'Juge de ligne',
-    8: 'Arbitre',
-    9: 'Superviseur',
-}
-
 def main():
     lines = []
     designations = get_design().splitlines()
     print("Fetched", len(designations) - 1, "designations")
     reader = csv.reader(designations, delimiter=';', quotechar='"')
-    next(reader) # Skip header
+    header = next(reader) # Skip header
     for row in reader:
         if len(row) < 7:
             print("Skipping invalid row:", row)
@@ -56,7 +48,7 @@ def main():
                         if refMatch:
                             lastName = refMatch.group(1)
                             firstName = refMatch.group(2)
-                            refCp.extend([ref_roles.get(col, "Arbitre"), lastName, firstName])
+                            refCp.extend([header[col], lastName, firstName])
                             lines.append(refCp)
                         else:
                             print("Error: referee name does not match the expected format", ref)
