@@ -2,6 +2,9 @@ import requests
 import re
 import logging
 import os
+from dotenv import load_dotenv
+
+
 
 HTTP_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/112.0',
@@ -49,6 +52,7 @@ def getAllDesignations(s: requests.Session) -> str:
     
 
 def main() -> str:
+    load_dotenv()
     # if local file exists, use it
     if os.path.exists(LOCAL_FILE_PATH):
         with open(LOCAL_FILE_PATH, 'r') as f:
