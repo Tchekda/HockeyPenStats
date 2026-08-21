@@ -10,11 +10,11 @@ All endpoints below were observed live and verified on **2026-07-28**.
 
 Two AngularJS single-page apps over a **Laravel** JSON backend.
 
-| App | Host | Who | Purpose |
-|---|---|---|---|
-| Désignation des arbitres (admin) | `hockeynet.fr` | admin/designator | assign officials to matches; admin scope over arbitrage data |
-| Person fiche (admin) | `hockeynet.fr` | admin | per-person record (`/personnes/fiche/{id}/…`) |
-| Arbitrages (referee self-service) | `licencies.hockeynet.fr` | the referee themselves | own indisponibilités / distances / designations |
+| App                               | Host                     | Who                    | Purpose                                                      |
+| --------------------------------- | ------------------------ | ---------------------- | ------------------------------------------------------------ |
+| Désignation des arbitres (admin)  | `hockeynet.fr`           | admin/designator       | assign officials to matches; admin scope over arbitrage data |
+| Person fiche (admin)              | `hockeynet.fr`           | admin                  | per-person record (`/personnes/fiche/{id}/…`)                |
+| Arbitrages (referee self-service) | `licencies.hockeynet.fr` | the referee themselves | own indisponibilités / distances / designations              |
 
 Two distinct authorization scopes matter:
 
@@ -47,15 +47,19 @@ Accept: application/json, text/plain, */*
 The `XSRF-TOKEN` cookie **rotates** — read it fresh before every call:
 
 ```js
-const xsrf = () => decodeURIComponent((document.cookie.match(/XSRF-TOKEN=([^;]+)/) || [])[1] || '');
+const xsrf = () =>
+  decodeURIComponent(
+    (document.cookie.match(/XSRF-TOKEN=([^;]+)/) || [])[1] || "",
+  );
 const H = () => ({
-  'Accept': 'application/json, text/plain, */*',
-  'X-Requested-With': 'XMLHttpRequest',
-  'X-XSRF-TOKEN': xsrf(),
+  Accept: "application/json, text/plain, */*",
+  "X-Requested-With": "XMLHttpRequest",
+  "X-XSRF-TOKEN": xsrf(),
 });
 ```
 
 Notes / gotchas:
+
 - Sessions are short-lived. A `401` on a call that worked earlier = session expired; the user
   must re-log-in in the browser, then retry.
 - Cross-origin does not carry the session. To hit `hockeynet.fr` endpoints, run from a
@@ -68,10 +72,12 @@ Notes / gotchas:
 ## 3. Endpoint reference
 
 ### 3.1 Arbitre roster / designations — `POST /arbitrage/designation/query`
+
 Paginated list of match designations. Body = filter object; `{}` = defaults (current season).
 Pagination via `?page=N` query param; `meta.last_page` gives page count.
 
 Response: `{ data: [...], links, meta }`. Each `data[]` record:
+
 ```
 { id, rencontre_libelle, valide, date, heure,
   phase{...}, competition{...}, lieu_pratique{ id, code, nom, ... },
@@ -86,21 +92,24 @@ Each entry carries `{ officiel_id, libelle, model_officiel{...} }`, and `rencont
 matches that `officiel_id`. Use `competition_officiels[].libelle` to label the row instead of hardcoding.
 
 **This is the primary source of arbitre `personId`s** — dedupe `rencontre_officiels[].personne.id`
-across all pages. Also the best source of person *identity* data (name, licence types, formations)
+across all pages. Also the best source of person _identity_ data (name, licence types, formations)
 without touching the gated fiche.
 
 ⚠️ Caveat: only surfaces arbitres who have been **designated**. A dedicated full-roster endpoint was
 not found; the admin UI "Arbitre" filter appears to preload a roster client-side — to get the true
 full roster, open that filter with the Network tab recording and capture the populating request.
 
-### 3.2 Indisponibilités — `GET /arbitrage/{personId}/indisponibilites/init`  ✅ cross-arbitre
+### 3.2 Indisponibilités — `GET /arbitrage/{personId}/indisponibilites/init` ✅ cross-arbitre
+
 Dates a referee is unavailable.
+
 ```
 { motifs: [ { id, libelle } ],                 // reason lookup
   routes: { add_indisponibilite, update_indisponibilite, delete_indisponibilite },
   indisponibilites: [ { id, motif_id, dates: { startDate:"dd/mm/yyyy", endDate:"dd/mm/yyyy" } } ],
   jourMaxSaisie }
 ```
+
 Motif map: `2 Travail · 3 blessure · 4 vacances · 5 stage · 6 mondial · 7 Autre`.
 
 Access: on `hockeynet.fr` (admin) returns 200 for **any** personId. On `licencies.hockeynet.fr`
@@ -109,8 +118,10 @@ it is owner-scoped (403 for others, 404 for non-existent).
 Mutations (per arbitre): `POST …/indisponibilites/ajout`, `POST …/{indispo_id}/update`,
 `DELETE …/{indispo_id}/delete`.
 
-### 3.3 Distances — `GET /arbitrage/{personId}/distances/init`  ✅ cross-arbitre
+### 3.3 Distances — `GET /arbitrage/{personId}/distances/init` ✅ cross-arbitre
+
 Travel distance + tolls from the arbitre to each rink.
+
 ```
 { structures: [ { id, nom, nom_court, code, ...,
                   lieux_de_pratique: [ { id, nom, libelle, structure, adresse,
@@ -122,35 +133,44 @@ Travel distance + tolls from the arbitre to each rink.
   permissions: { update_distance },
   avecCalculAuto }
 ```
+
 Join `personneDistances[].lieu_pratique_id` → venue name via
 `structures[].lieux_de_pratique[]` (build one global map; same for all arbitres).
 ~90% of ids resolve; unresolved = inactive/deleted venues, fall back to raw id.
 
-### 3.4 Restrictions — `GET /arbitrage/{personId}/restrictions/init`  ✅ cross-arbitre
+### 3.4 Restrictions — `GET /arbitrage/{personId}/restrictions/init` ✅ cross-arbitre
+
 Rinks the arbitre is restricted/barred from (typically own club / conflict of interest).
+
 ```
 { lieuxPratiques: [ { id, code, nom, structure, adresse, latitude, longitude, ... } ],  // lookup
   restrictionsPersonne: [ { id, personne_id, lieu_pratique_id, created_at, updated_at } ],
   routes }
 ```
+
 Most arbitres have `restrictionsPersonne: []`. Resolve `lieu_pratique_id` via `lieuxPratiques[]`.
 
-### 3.5 Calendrier — `GET /arbitrage/{personId}/calendrier/init`  ✅ cross-arbitre
+### 3.5 Calendrier — `GET /arbitrage/{personId}/calendrier/init` ✅ cross-arbitre
+
 Rolling 12-month schedule view.
+
 ```
 { data_calendrier: [ { current, numero /*month 1-12*/, annee, libelle /*month name*/,
                        premier_jour /*ISO*/, dernier_jour /*ISO*/, jours: [ /* per-day entries */ ] } ],
   est_ouvert /*bool*/, saisons: [...], date_ouverture,
   routes: { store, update, export_ics, send_ics } }
 ```
+
 `jours[]` carries per-day designations/availability; empty off-season. `export_ics` / `send_ics`
 let you export the calendar as `.ics` or email it.
 
-### 3.6 Designations (per arbitre) — `GET /arbitrage/{personId}/designations/init`  ✅ cross-arbitre
+### 3.6 Designations (per arbitre) — `GET /arbitrage/{personId}/designations/init` ✅ cross-arbitre
+
 Listed in the fiche route map; the per-arbitre view of their own assignments (contents known to
 the client; not deeply profiled here). Same access model as the other `/arbitrage/{id}/*` routes.
 
 ### 3.7 Disponibilités ("rink per weekday") — self-only ❌ NOT cross-arbitre
+
 Which weekdays the arbitre is available at each rink. Lives **only** under the person-gated fiche
 path (no `/arbitrage/{id}/disponibilites/init` exists — that returns 404).
 
@@ -173,6 +193,7 @@ personId → **302 redirect**. Getting this for all referees requires either a h
 designation-admin scope.
 
 ### 3.8 Person fiche (identity/overview) — server-rendered, mostly gated
+
 `/personnes/fiche/{id}/{apercu|infos|arbitrage|...}` are **server-rendered HTML pages** (data
 embedded in the HTML; no clean JSON "person details" API). For another person you can load only
 `/apercu`; the `/arbitrage` tab 302-redirects. For bulk identity data, use §3.1 instead.
@@ -186,18 +207,18 @@ Fiche-arbitrage route map (from `/personnes/fiche/{id}/arbitrage/init` → `rout
 
 ## 4. Access matrix
 
-| Dataset | Endpoint | Cross-arbitre on admin (`hockeynet.fr`)? |
-|---|---|---|
-| Designations list / roster | `POST /arbitrage/designation/query` | ✅ |
-| Designations XLSX export | `POST /arbitrage/designation/export` (hidden-form) | ✅ |
-| Indisponibilités | `GET /arbitrage/{id}/indisponibilites/init` | ✅ |
-| Distances | `GET /arbitrage/{id}/distances/init` | ✅ |
-| Restrictions | `GET /arbitrage/{id}/restrictions/init` | ✅ |
-| Calendrier | `GET /arbitrage/{id}/calendrier/init` | ✅ |
-| Designations (per arbitre) | `GET /arbitrage/{id}/designations/init` | ✅ |
-| **Disponibilités (rink/weekday)** | `GET /personnes/fiche/{id}/roles/{role_id}/disponibilites/init` | ❌ self-only (302 for others) |
-| Fiche apercu (overview) | `GET /personnes/fiche/{id}/apercu` (HTML) | ✅ overview only |
-| Fiche arbitrage tab | `GET /personnes/fiche/{id}/arbitrage` | ❌ self-only (302 → apercu) |
+| Dataset                           | Endpoint                                                        | Cross-arbitre on admin (`hockeynet.fr`)? |
+| --------------------------------- | --------------------------------------------------------------- | ---------------------------------------- |
+| Designations list / roster        | `POST /arbitrage/designation/query`                             | ✅                                       |
+| Designations XLSX export          | `POST /arbitrage/designation/export` (hidden-form)              | ✅                                       |
+| Indisponibilités                  | `GET /arbitrage/{id}/indisponibilites/init`                     | ✅                                       |
+| Distances                         | `GET /arbitrage/{id}/distances/init`                            | ✅                                       |
+| Restrictions                      | `GET /arbitrage/{id}/restrictions/init`                         | ✅                                       |
+| Calendrier                        | `GET /arbitrage/{id}/calendrier/init`                           | ✅                                       |
+| Designations (per arbitre)        | `GET /arbitrage/{id}/designations/init`                         | ✅                                       |
+| **Disponibilités (rink/weekday)** | `GET /personnes/fiche/{id}/roles/{role_id}/disponibilites/init` | ❌ self-only (302 for others)            |
+| Fiche apercu (overview)           | `GET /personnes/fiche/{id}/apercu` (HTML)                       | ✅ overview only                         |
+| Fiche arbitrage tab               | `GET /personnes/fiche/{id}/arbitrage`                           | ❌ self-only (302 → apercu)              |
 
 ---
 
@@ -226,14 +247,26 @@ Fiche-arbitrage route map (from `/personnes/fiche/{id}/arbitrage/init` → `rout
 ```
 
 Minimal fetch helpers:
+
 ```js
-const xsrf = () => decodeURIComponent((document.cookie.match(/XSRF-TOKEN=([^;]+)/)||[])[1]||'');
-const H = () => ({ 'Accept':'application/json, text/plain, */*',
-                   'X-Requested-With':'XMLHttpRequest', 'X-XSRF-TOKEN':xsrf() });
-const getJSON  = u   => fetch(u, { credentials:'include', headers:H() }).then(r=>r.json());
-const postJSON = (u,b)=> fetch(u, { method:'POST', credentials:'include',
-                   headers:{...H(),'Content-Type':'application/json;charset=UTF-8'},
-                   body:JSON.stringify(b||{}) }).then(r=>r.json());
+const xsrf = () =>
+  decodeURIComponent(
+    (document.cookie.match(/XSRF-TOKEN=([^;]+)/) || [])[1] || "",
+  );
+const H = () => ({
+  Accept: "application/json, text/plain, */*",
+  "X-Requested-With": "XMLHttpRequest",
+  "X-XSRF-TOKEN": xsrf(),
+});
+const getJSON = (u) =>
+  fetch(u, { credentials: "include", headers: H() }).then((r) => r.json());
+const postJSON = (u, b) =>
+  fetch(u, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...H(), "Content-Type": "application/json;charset=UTF-8" },
+    body: JSON.stringify(b || {}),
+  }).then((r) => r.json());
 ```
 
 ---
@@ -258,6 +291,7 @@ const postJSON = (u,b)=> fetch(u, { method:'POST', credentials:'include',
 - Disponibilités (own account, person 64881): 259 rows across 12 role/season records.
 
 ## 8. Ethics / scope note
+
 This documents an authenticated user's own admin capabilities for legitimate federation
 administration. The disponibilités person-level gate is a real authorization boundary and
 should not be circumvented; obtain the proper permission or a backend endpoint instead.
