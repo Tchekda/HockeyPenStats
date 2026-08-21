@@ -1,68 +1,96 @@
 import csv
-import re
-from get_design import main as get_design
+import json
+import os
+from pathlib import Path
 
-months = {
-    '01': 'Janvier',
-    '02': 'Février',
-    '03': 'Mars',
-    '04': 'Avril',
-    '05': 'Mai',
-    '06': 'Juin',
-    '07': 'Juillet',
-    '08': 'Août',
-    '09': 'Septembre',
-    '10': 'Octobre',
-    '11': 'Novembre',
-    '12': 'Décembre',
-}
+from get_design import (
+    build_designation_export_rows,
+    create_authenticated_session,
+    fetch_designations,
+    fetch_person_distances,
+    render_html_rows,
+)
 
-def main():
-    lines = []
-    designations = get_design().splitlines()
-    print("Fetched", len(designations) - 1, "designations")
-    reader = csv.reader(designations, delimiter=';', quotechar='"')
-    header = next(reader) # Skip header
-    for row in reader:
-        if len(row) < 7:
-            print("Skipping invalid row:", row)
+
+DISTANCE_CACHE_PATH = Path("data/distances_cache.json")
+
+
+def _build_distance_lookup(session, designations):
+    person_ids = set()
+    for designation in designations:
+        for officiel in designation.get("rencontre_officiels", []):
+            person = officiel.get("personne", {})
+            person_id = person.get("id")
+            if person_id is not None:
+                person_ids.add(int(person_id))
+
+    distance_lookup = {}
+    cached_distances = _load_distance_cache()
+    for person_id in sorted(person_ids):
+        cached_distance_map = cached_distances.get(str(person_id))
+        if cached_distance_map is not None:
+            distance_lookup[person_id] = {int(lieu_id): distance for lieu_id, distance in cached_distance_map.items()}
             continue
-        game = [
-            row[0], # Compétition
-            row[1], # Phase
-            row[2], # Date
-            row[3], # Heure
-            row[4], # Lieu
-        ]
-        for teamId in [0, 1]: # Duplicate for home and away teams
-            teamCp = game.copy()
-            teamCp.extend(["Domicile" if teamId == 0 else "Visiteur", row[5].split(' / ', 1)[teamId].split(' - ', 1)[1]])
-            refCols = range(6, len(row))
-            for col in refCols:
-                ref = row[col]
-                if ref:
-                    refNames = ref.split(', ')
-                    for refName in refNames:
-                        refCp = teamCp.copy()
-                        refMatch = re.match(r"M(?:me)? ([A-Z \-']+) ([A-Z][\w \-']+)", refName)
-                        if refMatch:
-                            lastName = refMatch.group(1)
-                            firstName = refMatch.group(2)
-                            refCp.extend([header[col], lastName, firstName])
-                            lines.append(refCp)
-                        else:
-                            print("Error: referee name does not match the expected format", ref)
-    print("Processed", len(lines), "designations entries")
-    with open("template_design.html", 'r') as f:
-        html_content = f.read()
-    with open("data/designations.html", 'w') as f:
-        f.write(html_content.replace("%DATA%", "\n".join(["<tr>" + "".join([f"<td>{data}</td>" for data in line]) + "</tr>" for line in lines])))
+        try:
+            person_distance_map, _ = fetch_person_distances(session, person_id)
+        except Exception as exc:
+            print(f"Warning: could not fetch distances for person {person_id}: {exc}")
+            continue
+        distance_lookup[person_id] = person_distance_map
+        cached_distances[str(person_id)] = {str(lieu_id): distance for lieu_id, distance in person_distance_map.items()}
 
-    with open("data/designations.csv", "w") as f:
+    _save_distance_cache(cached_distances)
+    return distance_lookup
+
+
+def _load_distance_cache():
+    if not DISTANCE_CACHE_PATH.exists():
+        return {}
+    try:
+        with open(DISTANCE_CACHE_PATH, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        if isinstance(payload, dict):
+            distances = payload.get("distances", payload)
+            if isinstance(distances, dict):
+                return distances
+    except Exception as exc:
+        print(f"Warning: could not read distance cache: {exc}")
+    return {}
+
+
+def _save_distance_cache(cached_distances):
+    DISTANCE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": 1,
+        "distances": cached_distances,
+    }
+    with open(DISTANCE_CACHE_PATH, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def main() -> None:
+    session = create_authenticated_session()
+    max_pages_env = os.environ.get("DESIGNATION_MAX_PAGES")
+    max_pages = int(max_pages_env) if max_pages_env else None
+    designations = fetch_designations(session, max_pages=max_pages)
+    print("Fetched", len(designations), "designations")
+
+    distance_lookup = _build_distance_lookup(session, designations)
+    lines = build_designation_export_rows(designations, distance_lookup)
+    print("Processed", len(lines), "designation rows")
+
+    headers = ["Compétition", "Phase", "Date", "Heure", "Lieu", "Type d'Équipe", "Équipe", "Rôle", "Nom", "Prénom", "Distance (km)"]
+
+    with open("template_design.html", "r", encoding="utf-8") as f:
+        html_content = f.read()
+    with open("data/designations.html", "w", encoding="utf-8") as f:
+        f.write(html_content.replace("%DATA%", render_html_rows(lines)))
+
+    with open("data/designations.csv", "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["Compétition", "Phase", "Date", "Heure", "Lieu", "Type d'Équipe", "Équipe", "Rôle", "Nom", "Prénom"])
-        for line in lines:
-            writer.writerow(line)
+        writer.writerow(headers)
+        writer.writerows(lines)
+
 
 if __name__ == "__main__":
     main()

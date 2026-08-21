@@ -1,268 +1,315 @@
-import csv
-import re
-from get_design import main as get_design
-from datetime import datetime
 from collections import defaultdict
+from datetime import datetime
 
-def parse_referee_names(ref_string):
-    """Extract referee names from a string like 'M DUPONT Jean, Mme MARTIN Marie'"""
-    if not ref_string:
-        return []
-    
-    refs = []
-    refNames = ref_string.split(', ')
-    for refName in refNames:
-        refMatch = re.match(r"M(?:me)? ([A-Z \-']+) ([A-Z][\w \-']+)", refName)
-        if refMatch:
-            lastName = refMatch.group(1)
-            firstName = refMatch.group(2)
-            refs.append((lastName, firstName))
-    return refs
+from get_design import (
+    create_authenticated_session,
+    fetch_designations,
+    fetch_person_indisponibilites,
+    parse_person_name,
+)
+
+
+MONTHS = [
+    "Janvier",
+    "Février",
+    "Mars",
+    "Avril",
+    "Mai",
+    "Juin",
+    "Juillet",
+    "Août",
+    "Septembre",
+    "Octobre",
+    "Novembre",
+    "Décembre",
+]
+
 
 def parse_date(date_str):
-    """Parse date from DD/MM/YYYY format"""
     return datetime.strptime(date_str, "%d/%m/%Y")
 
+
 def get_month_name(date_str):
-    """Get month name from date string"""
     dt = parse_date(date_str)
-    months = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
-              'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
-    return months[dt.month - 1]
+    return MONTHS[dt.month - 1]
+
+
+def _parse_indispo_bounds(indispo):
+    dates = indispo.get("dates", {})
+    start_date = dates.get("startDate")
+    end_date = dates.get("endDate") or start_date
+    if not start_date:
+        return None, None
+    return parse_date(start_date), parse_date(end_date)
+
+
+def _is_indisponible_on(date_str, indisponibilites):
+    target_date = parse_date(date_str)
+    for indispo in indisponibilites:
+        start_date, end_date = _parse_indispo_bounds(indispo)
+        if start_date is None or end_date is None:
+            continue
+        if start_date <= target_date <= end_date:
+            return True
+    return False
+
+
+def _build_person_roster(designations):
+    roster = {}
+    for designation in designations:
+        for officiel in designation.get("rencontre_officiels", []):
+            person = officiel.get("personne", {})
+            person_id = person.get("id")
+            if person_id is None:
+                continue
+            person_id = int(person_id)
+            roster[person_id] = person.get("nom_complet") or person.get("nom") or ""
+    return roster
+
+
+def _fetch_indisponibilites_for_roster(session, person_ids):
+    indisponibilites_by_person = {}
+    for person_id in sorted(person_ids):
+        try:
+            payload = fetch_person_indisponibilites(session, person_id)
+        except Exception as exc:
+            print(f"Warning: could not fetch indisponibilites for person {person_id}: {exc}")
+            continue
+        indisponibilites_by_person[person_id] = payload.get("indisponibilites", [])
+    return indisponibilites_by_person
+
 
 def main():
-    # Get raw designations from get_design (1 row per game)
-    designations = get_design().splitlines()
-    print(f"Fetched {len(designations) - 1} games")
-    
-    reader = csv.reader(designations, delimiter=';', quotechar='"')
-    next(reader)  # Skip header
-    
-    # Data structures
+    session = create_authenticated_session()
+    designations = fetch_designations(session)
+    print(f"Fetched {len(designations)} games")
+
     games = []
-    slm_refs = defaultdict(int)  # ref -> game count in SLM
-    
-    # Parse all games
-    for row in reader:
-        if len(row) < 7:
-            continue
-            
-        competition = row[0]
-        phase = row[1]
-        date = row[2]
-        time = row[3]
-        location = row[4]
-        teams = row[5]
-        
-        # Extract all referees from columns 6 onwards
+    slm_refs = defaultdict(int)
+
+    for designation in designations:
+        competition = designation.get("competition", {}).get("libelle", "")
+        phase = designation.get("phase", {}).get("libelle", "")
+        date = designation.get("date", "")
+        time = designation.get("heure", "")
+        location = designation.get("lieu_pratique", {}).get("nom", "")
+        teams = designation.get("rencontre_libelle", "")
+
         refs = []
-        for col in range(6, 9):
-            refs.extend(parse_referee_names(row[col]))
-        
-        game_data = {
-            'competition': competition,
-            'phase': phase,
-            'date': date,
-            'time': time,
-            'location': location,
-            'teams': teams,
-            'refs': refs
-        }
-        games.append(game_data)
-        
-        # Count SLM refs
-        if competition == 'Synerglace Ligue Magnus':
+        for officiel in designation.get("rencontre_officiels", []):
+            person = officiel.get("personne", {})
+            person_id = person.get("id")
+            if person_id is None:
+                continue
+            person_id = int(person_id)
+            refs.append((person_id, person.get("nom_complet") or person.get("nom") or ""))
+
+        games.append(
+            {
+                "competition": competition,
+                "phase": phase,
+                "date": date,
+                "time": time,
+                "location": location,
+                "teams": teams,
+                "refs": refs,
+            }
+        )
+
+        if competition == "Synerglace Ligue Magnus":
             for ref in refs:
                 slm_refs[ref] += 1
-    
-    # Filter SLM refs with at least 3 games
+
     slm_refs_qualified = {ref for ref, count in slm_refs.items() if count >= 3}
     print(f"\nFound {len(slm_refs_qualified)} SLM refs with at least 3 games")
-    
-    # Group games by date
+
+    roster = _build_person_roster(designations)
+    indisponibilites_by_person = _fetch_indisponibilites_for_roster(session, roster.keys())
+
     games_by_date = defaultdict(list)
     for game in games:
-        games_by_date[game['date']].append(game)
-    
-    # Analyze days with 5+ SLM games
-    print("\n" + "="*80)
+        games_by_date[game["date"]].append(game)
+
+    print("\n" + "=" * 80)
     print("ANALYSIS OF DAYS WITH 5+ SLM GAMES")
-    print("="*80)
-    
-    # Sort dates properly
+    print("=" * 80)
+
     sorted_dates = sorted(games_by_date.keys(), key=parse_date)
-    
-    # Store statistics for later aggregation
+
     daily_stats = []
     monthly_stats = defaultdict(lambda: {
-        'total_slm_refs_not_on_slm': 0,
-        'total_staying_home': 0,
-        'total_working_other': 0,
-        'total_slm_refs_on_slm': 0,
-        'days_count': 0,
-        'total_slm_games': 0
+        "total_slm_refs_not_on_slm": 0,
+        "total_staying_home": 0,
+        "total_indisponible": 0,
+        "total_working_other": 0,
+        "total_slm_refs_on_slm": 0,
+        "days_count": 0,
+        "total_slm_games": 0,
     })
-    
+
     global_stats = {
-        'total_slm_refs_not_on_slm': 0,
-        'total_staying_home': 0,
-        'total_working_other': 0,
-        'total_slm_refs_on_slm': 0,
-        'days_count': 0,
-        'total_slm_games': 0
+        "total_slm_refs_not_on_slm": 0,
+        "total_staying_home": 0,
+        "total_indisponible": 0,
+        "total_working_other": 0,
+        "total_slm_refs_on_slm": 0,
+        "days_count": 0,
+        "total_slm_games": 0,
     }
-    
+
     for date in sorted_dates:
         date_games = games_by_date[date]
-        slm_games = [g for g in date_games if g['competition'] == 'Synerglace Ligue Magnus']
-        
+        slm_games = [g for g in date_games if g["competition"] == "Synerglace Ligue Magnus"]
+
         if len(slm_games) >= 5:
-            # Get all refs appointed on SLM games this day
             slm_refs_on_slm_games = set()
             non_slm_refs_on_slm_games = set()
-            
+
             for game in slm_games:
-                for ref in game['refs']:
+                for ref in game["refs"]:
                     if ref in slm_refs_qualified:
                         slm_refs_on_slm_games.add(ref)
                     else:
                         non_slm_refs_on_slm_games.add(ref)
-            
-            # Get SLM refs working on other competitions this day
+
             slm_refs_on_other_games = set()
             for game in date_games:
-                if game['competition'] != 'Synerglace Ligue Magnus':
-                    for ref in game['refs']:
+                if game["competition"] != "Synerglace Ligue Magnus":
+                    for ref in game["refs"]:
                         if ref in slm_refs_qualified:
                             slm_refs_on_other_games.add(ref)
-            
-            # Get all refs with any appointment this day
+
             all_refs_working = set()
             for game in date_games:
-                for ref in game['refs']:
+                for ref in game["refs"]:
                     if ref in slm_refs_qualified:
                         all_refs_working.add(ref)
-            
-            # Calculate staying home (not working at all)
-            slm_refs_staying_home = slm_refs_qualified - all_refs_working
-            
-            # Calculate total not assigned on SLM
+
             slm_refs_not_on_slm = slm_refs_qualified - slm_refs_on_slm_games
-            
-            # Calculate percentages
+            slm_refs_staying_home_all = slm_refs_qualified - all_refs_working
+            slm_refs_indisponible = {
+                ref
+                for ref in slm_refs_staying_home_all
+                if _is_indisponible_on(date, indisponibilites_by_person.get(ref[0], []))
+            }
+            slm_refs_staying_home = slm_refs_staying_home_all - slm_refs_indisponible
+
             total_slm_refs = len(slm_refs_qualified)
             pct_not_on_slm = (len(slm_refs_not_on_slm) / total_slm_refs * 100) if total_slm_refs > 0 else 0
             pct_staying_home = (len(slm_refs_staying_home) / total_slm_refs * 100) if total_slm_refs > 0 else 0
-            
-            # Store stats for this day
+
             day_stat = {
-                'date': date,
-                'total_slm_games': len(slm_games),
-                'slm_refs_on_slm': len(slm_refs_on_slm_games),
-                'non_slm_refs_on_slm': len(non_slm_refs_on_slm_games),
-                'slm_refs_not_on_slm': len(slm_refs_not_on_slm),
-                'staying_home': len(slm_refs_staying_home),
-                'working_other': len(slm_refs_on_other_games),
-                'pct_not_on_slm': pct_not_on_slm,
-                'pct_staying_home': pct_staying_home,
-                'staying_home_list': sorted(slm_refs_staying_home),
-                'working_other_list': sorted(slm_refs_on_other_games),
-                'working_other_details': {}
+                "date": date,
+                "total_slm_games": len(slm_games),
+                "slm_refs_on_slm": len(slm_refs_on_slm_games),
+                "non_slm_refs_on_slm": len(non_slm_refs_on_slm_games),
+                "slm_refs_not_on_slm": len(slm_refs_not_on_slm),
+                "staying_home": len(slm_refs_staying_home),
+                "indisponible": len(slm_refs_indisponible),
+                "working_other": len(slm_refs_on_other_games),
+                "pct_not_on_slm": pct_not_on_slm,
+                "pct_staying_home": pct_staying_home,
+                "staying_home_list": sorted(slm_refs_staying_home),
+                "indisponible_list": sorted(slm_refs_indisponible),
+                "working_other_list": sorted(slm_refs_on_other_games),
+                "working_other_details": {},
             }
-            
-            # Get details of what competitions they're working
+
             for ref in slm_refs_on_other_games:
                 competitions = set()
                 for game in date_games:
-                    if game['competition'] != 'Synerglace Ligue Magnus' and ref in game['refs']:
-                        competitions.add(game['competition'])
-                day_stat['working_other_details'][ref] = competitions
-            
+                    if game["competition"] != "Synerglace Ligue Magnus" and ref in game["refs"]:
+                        competitions.add(game["competition"])
+                day_stat["working_other_details"][ref] = competitions
+
             daily_stats.append(day_stat)
-            
-            # Update monthly stats
+
             month_name = get_month_name(date)
-            monthly_stats[month_name]['total_slm_refs_not_on_slm'] += len(slm_refs_not_on_slm)
-            monthly_stats[month_name]['total_staying_home'] += len(slm_refs_staying_home)
-            monthly_stats[month_name]['total_working_other'] += len(slm_refs_on_other_games)
-            monthly_stats[month_name]['total_slm_refs_on_slm'] += len(slm_refs_on_slm_games)
-            monthly_stats[month_name]['days_count'] += 1
-            monthly_stats[month_name]['total_slm_games'] += len(slm_games)
-            
-            # Update global stats
-            global_stats['total_slm_refs_not_on_slm'] += len(slm_refs_not_on_slm)
-            global_stats['total_staying_home'] += len(slm_refs_staying_home)
-            global_stats['total_working_other'] += len(slm_refs_on_other_games)
-            global_stats['total_slm_refs_on_slm'] += len(slm_refs_on_slm_games)
-            global_stats['days_count'] += 1
-            global_stats['total_slm_games'] += len(slm_games)
-            
-            # Console output
+            monthly_stats[month_name]["total_slm_refs_not_on_slm"] += len(slm_refs_not_on_slm)
+            monthly_stats[month_name]["total_staying_home"] += len(slm_refs_staying_home)
+            monthly_stats[month_name]["total_indisponible"] += len(slm_refs_indisponible)
+            monthly_stats[month_name]["total_working_other"] += len(slm_refs_on_other_games)
+            monthly_stats[month_name]["total_slm_refs_on_slm"] += len(slm_refs_on_slm_games)
+            monthly_stats[month_name]["days_count"] += 1
+            monthly_stats[month_name]["total_slm_games"] += len(slm_games)
+
+            global_stats["total_slm_refs_not_on_slm"] += len(slm_refs_not_on_slm)
+            global_stats["total_staying_home"] += len(slm_refs_staying_home)
+            global_stats["total_indisponible"] += len(slm_refs_indisponible)
+            global_stats["total_working_other"] += len(slm_refs_on_other_games)
+            global_stats["total_slm_refs_on_slm"] += len(slm_refs_on_slm_games)
+            global_stats["days_count"] += 1
+            global_stats["total_slm_games"] += len(slm_games)
+
             print(f"\n📅 Date: {date}")
             print(f"   Total SLM games: {len(slm_games)}")
             print(f"   SLM refs appointed to SLM games: {len(slm_refs_on_slm_games)}")
             print(f"   Non-SLM refs appointed to SLM games: {len(non_slm_refs_on_slm_games)}")
             print(f"   Total SLM refs non désigné en SLM: {len(slm_refs_not_on_slm)} ({pct_not_on_slm:.1f}%)")
-            print(f"      - Staying home (no assignment): {len(slm_refs_staying_home)} ({pct_staying_home:.1f}%)")
+            print(f"      - Staying home (no assignment, not indisponible): {len(slm_refs_staying_home)} ({pct_staying_home:.1f}%)")
+            print(f"      - Indisponibles: {len(slm_refs_indisponible)}")
             print(f"      - Working other divisions: {len(slm_refs_on_other_games)}")
-            
-            # Details of refs staying home
-            if day_stat['staying_home_list']:
+
+            if day_stat["staying_home_list"]:
                 print(f"\n   📋 SLM refs staying home:")
-                for ref in day_stat['staying_home_list']:
-                    print(f"      - {ref[0]} {ref[1]}")
-            
-            # Details of refs working other divisions
-            if day_stat['working_other_list']:
+                for ref in day_stat["staying_home_list"]:
+                    print(f"      - {parse_person_name(ref[1])[0]} {parse_person_name(ref[1])[1]}")
+
+            if day_stat["indisponible_list"]:
+                print(f"\n   📋 SLM refs indisponibles:")
+                for ref in day_stat["indisponible_list"]:
+                    print(f"      - {parse_person_name(ref[1])[0]} {parse_person_name(ref[1])[1]}")
+
+            if day_stat["working_other_list"]:
                 print(f"\n   📋 SLM refs working other divisions:")
-                for ref in day_stat['working_other_list']:
-                    competitions = day_stat['working_other_details'][ref]
-                    print(f"      - {ref[0]} {ref[1]}: {', '.join(competitions)}")
-    
-    # Print global statistics
-    print("\n" + "="*80)
+                for ref in day_stat["working_other_list"]:
+                    competitions = day_stat["working_other_details"][ref]
+                    print(f"      - {parse_person_name(ref[1])[0]} {parse_person_name(ref[1])[1]}: {', '.join(competitions)}")
+
+    print("\n" + "=" * 80)
     print("GLOBAL STATISTICS")
-    print("="*80)
+    print("=" * 80)
     print(f"Total days analyzed: {global_stats['days_count']}")
     print(f"Total SLM games: {global_stats['total_slm_games']}")
     print(f"Average SLM games per day: {global_stats['total_slm_games'] / global_stats['days_count']:.1f}")
-    if global_stats['days_count'] > 0:
-        avg_not_on_slm = global_stats['total_slm_refs_not_on_slm'] / global_stats['days_count']
-        avg_staying_home = global_stats['total_staying_home'] / global_stats['days_count']
-        avg_working_other = global_stats['total_working_other'] / global_stats['days_count']
+    if global_stats["days_count"] > 0:
+        avg_not_on_slm = global_stats["total_slm_refs_not_on_slm"] / global_stats["days_count"]
+        avg_staying_home = global_stats["total_staying_home"] / global_stats["days_count"]
+        avg_indisponible = global_stats["total_indisponible"] / global_stats["days_count"]
+        avg_working_other = global_stats["total_working_other"] / global_stats["days_count"]
         total_slm_refs = len(slm_refs_qualified)
-        
+
         print(f"\nAverage per day:")
         print(f"  - SLM refs non désigné en SLM: {avg_not_on_slm:.1f} ({avg_not_on_slm/total_slm_refs*100:.1f}%)")
         print(f"  - SLM refs staying home: {avg_staying_home:.1f} ({avg_staying_home/total_slm_refs*100:.1f}%)")
+        print(f"  - SLM refs indisponibles: {avg_indisponible:.1f}")
         print(f"  - SLM refs working other divisions: {avg_working_other:.1f}")
-    
-    # Print monthly statistics
-    print("\n" + "="*80)
+
+    print("\n" + "=" * 80)
     print("MONTHLY STATISTICS")
-    print("="*80)
-    
-    month_order = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
-                   'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
-    
+    print("=" * 80)
+
+    month_order = MONTHS
+
     for month in month_order:
         if month in monthly_stats:
             stats = monthly_stats[month]
             print(f"\n{month}:")
             print(f"  Days with 5+ SLM games: {stats['days_count']}")
             print(f"  Total SLM games: {stats['total_slm_games']}")
-            if stats['days_count'] > 0:
-                avg_not_on_slm = stats['total_slm_refs_not_on_slm'] / stats['days_count']
-                avg_staying_home = stats['total_staying_home'] / stats['days_count']
-                avg_working_other = stats['total_working_other'] / stats['days_count']
+            if stats["days_count"] > 0:
+                avg_not_on_slm = stats["total_slm_refs_not_on_slm"] / stats["days_count"]
+                avg_staying_home = stats["total_staying_home"] / stats["days_count"]
+                avg_indisponible = stats["total_indisponible"] / stats["days_count"]
+                avg_working_other = stats["total_working_other"] / stats["days_count"]
                 total_slm_refs = len(slm_refs_qualified)
-                
+
                 print(f"  Average per day:")
                 print(f"    - SLM refs non désigné en SLM: {avg_not_on_slm:.1f} ({avg_not_on_slm/total_slm_refs*100:.1f}%)")
                 print(f"    - SLM refs staying home: {avg_staying_home:.1f} ({avg_staying_home/total_slm_refs*100:.1f}%)")
+                print(f"    - SLM refs indisponibles: {avg_indisponible:.1f}")
                 print(f"    - SLM refs working other divisions: {avg_working_other:.1f}")
-    
-    # Generate HTML report
+
     generate_html_report(daily_stats, global_stats, monthly_stats, slm_refs_qualified, month_order)
     print("\n✅ HTML report generated: data/staying_home.html")
 
@@ -306,6 +353,10 @@ def generate_html_report(daily_stats, global_stats, monthly_stats, slm_refs_qual
                 <td><span class="stats-highlight">%.1f</span> <span class="percentage">(%.1f%%)</span></td>
             </tr>
             <tr>
+                <td>Moyenne arbitres SLM indisponibles par journée</td>
+                <td><span class="stats-highlight">%.1f</span></td>
+            </tr>
+            <tr>
                 <td>Moyenne arbitres SLM travaillant autres divisions par journée</td>
                 <td><span class="stats-highlight">%.1f</span></td>
             </tr>
@@ -320,6 +371,7 @@ def generate_html_report(daily_stats, global_stats, monthly_stats, slm_refs_qual
         (global_stats['total_slm_refs_not_on_slm'] / global_stats['days_count'] / total_slm_refs * 100) if global_stats['days_count'] > 0 else 0,
         global_stats['total_staying_home'] / global_stats['days_count'] if global_stats['days_count'] > 0 else 0,
         (global_stats['total_staying_home'] / global_stats['days_count'] / total_slm_refs * 100) if global_stats['days_count'] > 0 else 0,
+        global_stats['total_indisponible'] / global_stats['days_count'] if global_stats['days_count'] > 0 else 0,
         global_stats['total_working_other'] / global_stats['days_count'] if global_stats['days_count'] > 0 else 0
     )
     
@@ -335,6 +387,7 @@ def generate_html_report(daily_stats, global_stats, monthly_stats, slm_refs_qual
                 <th>% Non désigné en SLM</th>
                 <th>Moy. Restant à domicile</th>
                 <th>% Restant à domicile</th>
+                <th>Moy. Indisponibles</th>
                 <th>Moy. Autres divisions</th>
             </tr>
         </thead>
@@ -347,6 +400,7 @@ def generate_html_report(daily_stats, global_stats, monthly_stats, slm_refs_qual
             if stats['days_count'] > 0:
                 avg_not_on_slm = stats['total_slm_refs_not_on_slm'] / stats['days_count']
                 avg_staying_home = stats['total_staying_home'] / stats['days_count']
+                avg_indisponible = stats['total_indisponible'] / stats['days_count']
                 avg_working_other = stats['total_working_other'] / stats['days_count']
                 
                 content += f"""            <tr>
@@ -357,6 +411,7 @@ def generate_html_report(daily_stats, global_stats, monthly_stats, slm_refs_qual
                 <td><span class="percentage">{avg_not_on_slm/total_slm_refs*100:.1f}%</span></td>
                 <td>{avg_staying_home:.1f}</td>
                 <td><span class="percentage">{avg_staying_home/total_slm_refs*100:.1f}%</span></td>
+                <td>{avg_indisponible:.1f}</td>
                 <td>{avg_working_other:.1f}</td>
             </tr>
 """
@@ -372,7 +427,7 @@ def generate_html_report(daily_stats, global_stats, monthly_stats, slm_refs_qual
         content += f"""
     <details class="day-section">
         <summary style="cursor: pointer; font-size: 1.2em; font-weight: bold; padding: 10px; margin: -20px -20px 20px -20px; background-color: #3498db; color: white; border-radius: 5px 5px 0 0;">
-            📅 {day['date']} - {day['total_slm_games']} matchs SLM - {day['staying_home']} arbitres à domicile ({day['pct_staying_home']:.1f}%)
+            📅 {day['date']} - {day['total_slm_games']} matchs SLM - {day['staying_home']} arbitres à domicile hors indisponibilités ({day['pct_staying_home']:.1f}%)
         </summary>
         <table>
             <thead>
@@ -403,6 +458,10 @@ def generate_html_report(daily_stats, global_stats, monthly_stats, slm_refs_qual
                     <td><span class="stats-highlight">{day['staying_home']}</span> <span class="percentage">({day['pct_staying_home']:.1f}%)</span></td>
                 </tr>
                 <tr>
+                    <td>Indisponibles</td>
+                    <td><span class="stats-highlight">{day['indisponible']}</span></td>
+                </tr>
+                <tr>
                     <td>Travaillant autres divisions</td>
                     <td><span class="stats-highlight">{day['working_other']}</span></td>
                 </tr>
@@ -414,7 +473,7 @@ def generate_html_report(daily_stats, global_stats, monthly_stats, slm_refs_qual
             content += f"""
         <details style="margin-top: 15px;">
             <summary style="cursor: pointer; font-size: 1.05em; font-weight: 600; color: #2c3e50;">
-                🏠 Arbitres SLM restant à domicile ({len(day['staying_home_list'])})
+                🏠 Arbitres SLM restant à domicile hors indisponibilités ({len(day['staying_home_list'])})
             </summary>
             <ul>
 """
