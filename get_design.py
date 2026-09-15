@@ -1,7 +1,10 @@
 import html
+import json
 import logging
 import os
 import re
+import time
+from pathlib import Path
 from typing import Any, Sequence
 from urllib.parse import unquote
 
@@ -109,8 +112,114 @@ def create_authenticated_session() -> requests.Session:
             "password": os.environ.get("HOCKEYNET_PASSWORD", "PASSWORD"),
         },
     )
-    sendRequest(s, BASE_URL + "/arbitrage/designation", "GET")
+    designation_page = sendRequest(s, BASE_URL + "/arbitrage/designation", "GET")
+    s.own_person_id = None
+    match = re.search(r"/personnes/fiche/(\d+)", designation_page.text)
+    if match:
+        s.own_person_id = int(match.group(1))
     return s
+
+
+def _derive_roles_from_designations(designations: list[dict]) -> tuple[dict[int, str], dict[int, list[dict]]]:
+    roster: dict[int, str] = {}
+    derived: dict[int, list[dict]] = {}
+    for designation in designations:
+        role_lookup = _build_role_label_lookup(designation)
+        competition_label = designation.get("competition", {}).get("libelle", "")
+        for officiel in designation.get("rencontre_officiels", []):
+            person = officiel.get("personne", {})
+            person_id = person.get("id")
+            if person_id is None:
+                continue
+            person_id = int(person_id)
+            roster[person_id] = person.get("nom_complet") or person.get("nom") or ""
+            role_label = _resolve_role_label(officiel, role_lookup)
+            saison = designation.get("phase", {}).get("competition_maitre", {}).get("saison")
+            if saison is None:
+                saison = designation.get("competition", {}).get("saison")
+            roles_for_person = derived.setdefault(person_id, [])
+            if not any(
+                r.get("role") == role_label
+                and r.get("competition") == competition_label
+                and r.get("saison") == saison
+                for r in roles_for_person
+            ):
+                roles_for_person.append({
+                    "role": role_label,
+                    "competition": competition_label,
+                    "phase": "",
+                    "saison": saison,
+                })
+    return roster, derived
+
+
+def _filter_roles_by_saison(roles: list[dict], current_saison: int | None) -> list[dict]:
+    if current_saison is None:
+        return roles
+    return [r for r in roles if r.get("saison") == current_saison]
+
+
+def build_roles_lookup(
+    designations: list[dict],
+    session: requests.Session | None = None,
+    current_saison: int | None = None,
+) -> dict[int, list[dict]]:
+    """Map person_id -> season roles.
+
+    Derived from designations (no per-official requests); the logged-in
+    person's roles come from their fiche, which is the only accessible one.
+    """
+    roster, derived = _derive_roles_from_designations(designations)
+
+    own_person_id = getattr(session, "own_person_id", None) if session is not None else None
+    if own_person_id is not None:
+        try:
+            own_roles = fetch_person_roles(session, own_person_id)
+            if own_roles:
+                derived[own_person_id] = own_roles
+        except Exception as exc:
+            print(f"Warning: could not fetch roles for person {own_person_id}: {exc}")
+
+    return {
+        person_id: _filter_roles_by_saison(roles, current_saison)
+        for person_id, roles in derived.items()
+    }
+
+
+def get_roles_data(
+    session: requests.Session | None = None,
+    designations: list[dict] | None = None,
+    current_saison: int | None = None,
+) -> tuple[dict[int, str], dict[int, list[dict]]]:
+    """Return (roster, roles_lookup), reusing data/designations_store.json when fresh.
+
+    The store is written by fetch_designations() and contains the raw
+    designations the roles are derived from; it is considered fresh for
+    DESIGNATIONS_STORE_TTL_HOURS (default 24). When stale, designations are
+    refetched (or taken from the argument) and the store is updated.
+    """
+    if designations is None:
+        designations = load_designations_from_store()
+    if designations is None:
+        if session is None:
+            session = create_authenticated_session()
+        designations = fetch_designations(session)
+
+    roster, derived = _derive_roles_from_designations(designations or [])
+    own_person_id = getattr(session, "own_person_id", None) if session is not None else None
+    if own_person_id is not None:
+        try:
+            own_roles = fetch_person_roles(session, own_person_id)
+            if own_roles:
+                derived[own_person_id] = own_roles
+        except Exception as exc:
+            print(f"Warning: could not fetch roles for person {own_person_id}: {exc}")
+
+    lookup = {
+        person_id: _filter_roles_by_saison(roles, current_saison)
+        for person_id, roles in derived.items()
+    }
+    return roster, lookup
 
 
 def request_designation_page(s: requests.Session, page_number: int) -> dict:
@@ -142,7 +251,49 @@ def fetch_designations(s: requests.Session, max_pages: int | None = None) -> lis
     designations = []
     for page in pages:
         designations.extend(page.get("data", []))
+    save_designations_to_store(designations)
     return designations
+
+
+DESIGNATIONS_STORE_PATH = Path("data/designations_store.json")
+
+
+def _designations_store_ttl_seconds() -> float:
+    try:
+        return float(os.environ.get("DESIGNATIONS_STORE_TTL_HOURS", "24")) * 3600
+    except ValueError:
+        return 24 * 3600
+
+
+def save_designations_to_store(designations: list[dict]) -> None:
+    DESIGNATIONS_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": 1,
+        "fetched_at": time.time(),
+        "designations": designations,
+    }
+    with open(DESIGNATIONS_STORE_PATH, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
+
+
+def load_designations_from_store() -> list[dict] | None:
+    if not DESIGNATIONS_STORE_PATH.exists():
+        return None
+    try:
+        with open(DESIGNATIONS_STORE_PATH, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        fetched_at = payload.get("fetched_at")
+        if not isinstance(fetched_at, (int, float)):
+            return None
+        if time.time() - float(fetched_at) > _designations_store_ttl_seconds():
+            return None
+        designations = payload.get("designations")
+        if isinstance(designations, list):
+            print("Loaded", len(designations), "designations from store")
+            return designations
+    except Exception:
+        pass
+    return None
 
 
 def fetch_person_distances(s: requests.Session, person_id: int | str) -> tuple[dict, dict]:
@@ -161,6 +312,43 @@ def fetch_person_distances(s: requests.Session, person_id: int | str) -> tuple[d
             continue
         distance_map[lieu_id] = row.get("distance")
     return distance_map, data
+
+
+def fetch_person_roles(s: requests.Session, person_id: int | str) -> dict:
+    """Fetch a person's season arbitrage roles (self-only, 403 for others).
+
+    Returns {person_id: [{"role": ..., "competition": ..., "phase": ..., "saison": ...}]}
+    """
+    payload = s.request(
+        "GET",
+        f"{BASE_URL}/personnes/fiche/{person_id}/arbitrage/init",
+        headers={**_session_headers(), **_xhr_headers(s)},
+        timeout=20,
+    )
+    if payload.status_code != 200:
+        payload.raise_for_status()
+    data = payload.json()
+
+    roles_lookup = {role.get("id"): role.get("libelle") for role in data.get("roles", []) if isinstance(role, dict)}
+    competitions_lookup = {
+        competition.get("id"): competition.get("libelle")
+        for competition in data.get("competitions", [])
+        if isinstance(competition, dict)
+    }
+    phases_lookup = {phase.get("id"): phase.get("libelle") for phase in data.get("phases", []) if isinstance(phase, dict)}
+
+    season_roles = []
+    for entry in data.get("rolesPersonne", []):
+        role_label = roles_lookup.get(entry.get("roleId"), f"roleId={entry.get('roleId')}")
+        competition_label = competitions_lookup.get(entry.get("competitionId"), f"competitionId={entry.get('competitionId')}")
+        phase_label = phases_lookup.get(entry.get("phaseId"), "") if entry.get("phaseId") else ""
+        season_roles.append({
+            "role": role_label or "",
+            "competition": competition_label or "",
+            "phase": phase_label or "",
+            "saison": entry.get("saison"),
+        })
+    return season_roles
 
 
 def fetch_person_indisponibilites(s: requests.Session, person_id: int | str) -> dict:

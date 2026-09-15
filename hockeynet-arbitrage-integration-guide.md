@@ -295,3 +295,48 @@ const postJSON = (u, b) =>
 This documents an authenticated user's own admin capabilities for legitimate federation
 administration. The disponibilités person-level gate is a real authorization boundary and
 should not be circumvented; obtain the proper permission or a backend endpoint instead.
+
+---
+
+## 9. Season roles per officiel (role + division) — verified 2026-09-15
+
+A person's **season roles** (e.g. "Arbitre principal — Division 1", "Juge de ligne — Synerglace Ligue
+Magnus") live in `rolesPersonne[]` returned by:
+
+```
+GET https://licencies.hockeynet.fr/personnes/fiche/{personId}/arbitrage/init
+```
+
+Response shape:
+
+```
+{ routes, saisons, personne,
+  roles:          [ { id, libelle, saison, licence_types_requis, ... } ],   // roleId -> libelle
+  competitions:   [ { id, libelle, saison, officiels[...] } ],             // competitionId -> libelle (division)
+  phases:         [ { id, libelle, competition_id } ],
+  rolesPersonne:  [ { id, competitionId, phaseId, roleId, saison } ] }      // THE season roles
+```
+
+Decode:
+
+```
+role_label     = roles[].libelle         where roles[].id == rolesPersonne[].roleId
+competition    = competitions[].libelle  where competitions[].id == rolesPersonne[].competitionId
+# => f"{role_label} - {competition}" e.g. "Arbitre principal - Division 1"
+```
+
+⚠️ Access: **self-only**. Own fiche → 200; any other personId → 403 on `licencies.hockeynet.fr`,
+302→`/apercu` on `hockeynet.fr`. The FFHG **hid the roles tab from the licencié UI** (the
+`/arbitrages` page now ships `config.roles = false`, so the tab is not rendered), but the endpoint
+still returns the data.
+
+Workaround for other arbitres with this account's permissions (designation-read only):
+
+- `POST /arbitrage/designation/query` (any `saison`, `show_all: true`) → per-match
+  `rencontre_officiels[].officiel_id` joined with
+  `phase.competition_maitre.competition_officiels[].{officiel_id, libelle}` gives **role + competition
+  per designation**. Distinct pairs per person ≈ their season roles (missing only roles held without
+  any designation).
+- `arbitres-assignable` (per rencontre, `officiel_id` filter) returns the eligible roster for a role,
+  but needs `designation` write permission (403 otherwise).
+- `/api/v1/login` (E-licence bearer-token API) rejects web credentials — not usable with these creds.
