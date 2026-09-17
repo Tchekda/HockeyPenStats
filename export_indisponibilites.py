@@ -54,6 +54,9 @@ def _format_role_label(season_role: dict) -> str:
 def main():
     session = create_authenticated_session()
     designations = fetch_designations(session)
+
+    first_designation = designations[0] if designations else None
+
     roster = _build_roster(designations)
 
     current_saison = int(os.environ.get("DESIGNATION_SAISON", 2027))
@@ -79,6 +82,8 @@ def main():
             dates = indispo.get("dates", {})
             start_date = dates.get("startDate", "")
             end_date = dates.get("endDate", "")
+            if first_designation and _parse_indispo_date(end_date) < _parse_indispo_date(first_designation.get("date", "")):
+                continue 
             for role_label in role_labels:
                 rows.append([
                     person_id,
